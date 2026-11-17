@@ -27,15 +27,17 @@ service cloud.firestore {
     }
 
     function isVerifiedUser() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn();
     }
 
     function isOwner(uid) {
-      return isVerifiedUser() && request.auth.uid == uid;
+      return isSignedIn() && request.auth.uid == uid;
     }
 
     function isBootstrapAdminEmail() {
-      return isVerifiedUser() && request.auth.token.email == 'ahmedalbannaweb@gmail.com';
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'ahmedalbannaweb@gmail.com';
     }
 
     function isAdmin() {
@@ -86,8 +88,9 @@ service cloud.firestore {
 
     function isValidUserPrivateInfo(data) {
       return data.keys().hasAll(['email', 'updatedAt'])
-        && data.keys().hasOnly(['email', 'updatedAt'])
-        && isValidStr(data.email, 3, 200)
+        && data.keys().hasOnly(['email', 'phone', 'updatedAt'])
+        && isValidStr(data.email, 0, 200)
+        && (!('phone' in data) || isValidStr(data.phone, 0, 40))
         && data.updatedAt is timestamp;
     }
 
@@ -300,7 +303,7 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
-      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp' && (request.auth.token.email == 'ahmedalbannaweb@gmail.com' || resource.data.uid == request.auth.uid);
+      allow list: if isSignedIn() && resource.data.orgId == 'naqaa-erp' && ((request.auth.token.email == 'ahmedalbannaweb@gmail.com' && request.auth.token.email_verified == true) || resource.data.uid == request.auth.uid);
       allow create: if isValidId(uid)
         && isVerifiedUser()
         && isValidUserProfile(incoming(), uid)

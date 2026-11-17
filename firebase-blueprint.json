@@ -27,10 +27,11 @@
     },
     "UserPrivateInfo": {
       "title": "UserPrivateInfo",
-      "description": "Isolated PII document for user email.",
+      "description": "Isolated PII document for user email and phone.",
       "type": "object",
       "properties": {
         "email": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 40 },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["email", "updatedAt"]

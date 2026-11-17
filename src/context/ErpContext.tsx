@@ -1,9 +1,12 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import {
   User,
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updateProfile,
 } from 'firebase/auth';
 import {
   collection,
@@ -64,7 +67,15 @@ interface ErpContextValue {
   authLoading: boolean;
   dataLoading: boolean;
   authError: string | null;
+  authNeedsConsoleSetup: boolean;
   signInWithGoogle: () => Promise<void>;
+  loginWithCredentials: (input: { identifier: string; password: string }) => Promise<void>;
+  registerWithCredentials: (input: {
+    displayName: string;
+    identifier: string;
+    password: string;
+  }) => Promise<void>;
+  clearAuthError: () => void;
   signOutUser: () => Promise<void>;
   canEdit: (roles: UserRole[]) => boolean;
 
@@ -201,7 +212,9 @@ export function ErpProvider({ children }: { children: React.ReactNode }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authNeedsConsoleSetup, setAuthNeedsConsoleSetup] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const pendingRegistrationRef = useRef<{ displayName: string; phone: string } | null>(null);
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -246,7 +259,14 @@ export function ErpProvider({ children }: { children: React.ReactNode }) {
 
         if (!snap.exists()) {
           const defaultRole: UserRole = isBootstrap ? 'admin' : 'viewer';
-          const displayName = user.displayName || user.email?.split('@')[0] || 'مستخدم النظام';
+          const pending = pendingRegistrationRef.current;
+          const displayName =
+            pending?.displayName ||
+            user.displayName ||
+            user.email?.split('@')[0] ||
+            'مستخدم النظام';
+          const phone = pending?.phone || '';
+          pendingRegistrationRef.current = null;
           await setDoc(userRef, {
             uid: user.uid,
             orgId: ORG_ID,
@@ -258,6 +278,7 @@ export function ErpProvider({ children }: { children: React.ReactNode }) {
           });
           await setDoc(doc(db, 'users', user.uid, 'private', 'info'), {
             email: user.email || '',
+            ...(phone ? { phone: phone.slice(0, 40) } : {}),
             updatedAt: serverTimestamp(),
           });
           if (isBootstrap) {
@@ -379,13 +400,108 @@ export function ErpProvider({ children }: { children: React.ReactNode }) {
     };
   }, [firebaseUser?.uid, userProfile?.role]);
 
-  const signInWithGoogle = async () => {
+  const resolveAuthIdentifier = (identifier: string) => {
+    const trimmed = identifier.trim();
+    if (!trimmed) {
+      throw new Error('يرجى إدخال البريد الإلكتروني أو رقم الهاتف');
+    }
+    if (trimmed.includes('@')) {
+      return {
+        authEmail: trimmed.toLowerCase(),
+        phone: '',
+      };
+    }
+    const cleaned = trimmed.replace(/[\s\-()]/g, '');
+    const digits = cleaned.replace(/\D/g, '');
+    if (digits.length < 7 || digits.length > 15) {
+      throw new Error('يرجى إدخال بريد إلكتروني صحيح أو رقم هاتف مكون من 7 إلى 15 رقماً');
+    }
+    return {
+      authEmail: `phone_${digits}@naqaa-phone.local`,
+      phone: cleaned,
+    };
+  };
+
+  const mapAuthError = (err: unknown): string => {
+    const code =
+      typeof err === 'object' && err !== null && 'code' in err
+        ? String((err as { code?: unknown }).code)
+        : '';
+    if (code === 'auth/operation-not-allowed' || code === 'auth/admin-restricted-operation') {
+      setAuthNeedsConsoleSetup(true);
+      return 'مزود تسجيل الدخول بالبريد/كلمة المرور غير مفعل بعد في Firebase Console.';
+    }
+    if (code === 'auth/email-already-in-use') {
+      return 'هذا البريد الإلكتروني أو رقم الهاتف مسجل مسبقاً. يمكنك تسجيل الدخول مباشرة.';
+    }
+    if (
+      code === 'auth/invalid-credential' ||
+      code === 'auth/wrong-password' ||
+      code === 'auth/user-not-found'
+    ) {
+      return 'بيانات الدخول غير صحيحة. تأكد من البريد الإلكتروني أو رقم الهاتف وكلمة المرور.';
+    }
+    if (code === 'auth/weak-password') {
+      return 'كلمة المرور قصيرة جداً. يجب أن تكون 6 أحرف على الأقل.';
+    }
+    if (code === 'auth/invalid-email') {
+      return 'صيغة البريد الإلكتروني أو رقم الهاتف غير صالحة.';
+    }
+    if (code === 'auth/too-many-requests') {
+      return 'تم تجاوز عدد المحاولات المسموح بها مؤقتاً. حاول لاحقاً.';
+    }
+    return err instanceof Error ? err.message : 'تعذر إتمام عملية المصادقة';
+  };
+
+  const clearAuthError = () => {
     setAuthError(null);
+    setAuthNeedsConsoleSetup(false);
+  };
+
+  const signInWithGoogle = async () => {
+    clearAuthError();
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'فشل تسجيل الدخول';
+      setAuthError(mapAuthError(err));
+    }
+  };
+
+  const loginWithCredentials = async (input: { identifier: string; password: string }) => {
+    clearAuthError();
+    try {
+      const { authEmail } = resolveAuthIdentifier(input.identifier);
+      await signInWithEmailAndPassword(auth, authEmail, input.password);
+    } catch (err) {
+      const msg = mapAuthError(err);
       setAuthError(msg);
+      throw new Error(msg);
+    }
+  };
+
+  const registerWithCredentials = async (input: {
+    displayName: string;
+    identifier: string;
+    password: string;
+  }) => {
+    clearAuthError();
+    try {
+      const name = input.displayName.trim();
+      if (name.length < 2) {
+        throw new Error('يرجى إدخال الاسم الكامل (حرفين على الأقل)');
+      }
+      if (input.password.length < 6) {
+        throw new Error('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+      }
+      const { authEmail, phone } = resolveAuthIdentifier(input.identifier);
+      pendingRegistrationRef.current = { displayName: name, phone };
+      const cred = await createUserWithEmailAndPassword(auth, authEmail, input.password);
+      await updateProfile(cred.user, { displayName: name });
+    } catch (err) {
+      pendingRegistrationRef.current = null;
+      const msg = mapAuthError(err);
+      setAuthError(msg);
+      throw new Error(msg);
     }
   };
 
@@ -1950,7 +2066,11 @@ export function ErpProvider({ children }: { children: React.ReactNode }) {
         authLoading,
         dataLoading,
         authError,
+        authNeedsConsoleSetup,
         signInWithGoogle,
+        loginWithCredentials,
+        registerWithCredentials,
+        clearAuthError,
         signOutUser,
         canEdit,
         suppliers,
