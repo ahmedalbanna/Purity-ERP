@@ -1,0 +1,319 @@
+{
+  "entities": {
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Trusted marker document granting admin privileges to a specific user UID.",
+      "type": "object",
+      "properties": {
+        "grantedAt": { "type": "string", "format": "date-time", "description": "Timestamp when admin role was granted." },
+        "grantedBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": ["grantedAt", "grantedBy"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Operational user profile and RBAC role assignment.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["admin", "procurement", "warehouse", "sales", "finance", "viewer"] },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "orgId", "displayName", "role", "active", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII document for user email.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 200 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "updatedAt"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Local or international cleaning product supplier with contract pricing and payable balance.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 150 },
+        "supplierType": { "type": "string", "enum": ["local", "international"] },
+        "country": { "type": "string", "maxLength": 80 },
+        "contactName": { "type": "string", "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "currency": { "type": "string", "enum": ["YER", "SAR", "USD", "AED"] },
+        "paymentTermsDays": { "type": "number" },
+        "balanceYer": { "type": "number" },
+        "leadTimeDays": { "type": "number" },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "name", "supplierType", "country", "currency", "paymentTermsDays", "balanceYer", "active", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Cleaning product catalog item with multi-UOM packaging and sector pricing.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sku": { "type": "string", "minLength": 2, "maxLength": 60, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "category": { "type": "string", "enum": ["detergents", "disinfectants", "dishwashing", "laundry", "glass_surface", "industrial"] },
+        "baseUnitName": { "type": "string", "maxLength": 40 },
+        "packUnitName": { "type": "string", "maxLength": 40 },
+        "unitsPerPack": { "type": "number" },
+        "volumeLitersPerUnit": { "type": "number" },
+        "reorderPointUnits": { "type": "number" },
+        "storageTempMin": { "type": "number" },
+        "storageTempMax": { "type": "number" },
+        "defaultSupplierId": { "type": "string", "maxLength": 128 },
+        "lastPurchaseCostYer": { "type": "number" },
+        "priceSupermarketYer": { "type": "number" },
+        "priceWholesaleYer": { "type": "number" },
+        "priceB2bYer": { "type": "number" },
+        "taxable": { "type": "boolean" },
+        "rotationPolicy": { "type": "string", "enum": ["FEFO", "FIFO"] },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "sku", "name", "category", "baseUnitName", "packUnitName", "unitsPerPack", "volumeLitersPerUnit", "reorderPointUnits", "priceSupermarketYer", "priceWholesaleYer", "priceB2bYer", "taxable", "rotationPolicy", "createdBy", "createdAt", "updatedAt"]
+    },
+    "PurchaseOrder": {
+      "title": "PurchaseOrder",
+      "description": "Procurement order with shipment tracking and landed cost allocation.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "poNumber": { "type": "string", "maxLength": 60 },
+        "supplierId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "supplierName": { "type": "string", "maxLength": 150 },
+        "shipmentType": { "type": "string", "enum": ["local", "import"] },
+        "status": { "type": "string", "enum": ["draft", "ordered", "in_transit", "customs", "received", "cancelled"] },
+        "expectedDate": { "type": "string", "maxLength": 40 },
+        "goodsSubtotalYer": { "type": "number" },
+        "freightCostYer": { "type": "number" },
+        "customsDutyYer": { "type": "number" },
+        "totalLandedCostYer": { "type": "number" },
+        "paidAmountYer": { "type": "number" },
+        "items": { "type": "array" },
+        "notes": { "type": "string", "maxLength": 500 },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "poNumber", "supplierId", "supplierName", "shipmentType", "status", "goodsSubtotalYer", "freightCostYer", "customsDutyYer", "totalLandedCostYer", "paidAmountYer", "items", "createdBy", "createdAt", "updatedAt"]
+    },
+    "InventoryBatch": {
+      "title": "InventoryBatch",
+      "description": "Warehouse stock lot with expiry tracking, storage temperature, and landed unit cost.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "productId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "productName": { "type": "string", "maxLength": 160 },
+        "sku": { "type": "string", "maxLength": 60 },
+        "batchNumber": { "type": "string", "maxLength": 80 },
+        "warehouseZone": { "type": "string", "maxLength": 80 },
+        "recordedTempC": { "type": "number" },
+        "mfgDate": { "type": "string", "maxLength": 40 },
+        "expiryDate": { "type": "string", "maxLength": 40 },
+        "initialUnits": { "type": "number" },
+        "remainingUnits": { "type": "number" },
+        "landedUnitCostYer": { "type": "number" },
+        "poId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["active", "depleted", "quarantined", "expired"] },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "productId", "productName", "sku", "batchNumber", "warehouseZone", "mfgDate", "expiryDate", "initialUnits", "remainingUnits", "landedUnitCostYer", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "StockCount": {
+      "title": "StockCount",
+      "description": "Physical inventory audit and variance adjustment record.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "batchId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "productId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "productName": { "type": "string", "maxLength": 160 },
+        "batchNumber": { "type": "string", "maxLength": 80 },
+        "systemUnits": { "type": "number" },
+        "countedUnits": { "type": "number" },
+        "varianceUnits": { "type": "number" },
+        "reason": { "type": "string", "maxLength": 240 },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "batchId", "productId", "productName", "batchNumber", "systemUnits", "countedUnits", "varianceUnits", "reason", "createdBy", "createdAt"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Sales customer categorized by Supermarket, Wholesale, or B2B sector.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 150 },
+        "sector": { "type": "string", "enum": ["supermarket", "wholesale", "b2b"] },
+        "routeName": { "type": "string", "maxLength": 100 },
+        "assignedRepId": { "type": "string", "maxLength": 128 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "cityDistrict": { "type": "string", "maxLength": 100 },
+        "creditLimitYer": { "type": "number" },
+        "balanceYer": { "type": "number" },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "name", "sector", "routeName", "creditLimitYer", "balanceYer", "active", "createdBy", "createdAt", "updatedAt"]
+    },
+    "SalesRep": {
+      "title": "SalesRep",
+      "description": "Field sales representative with assigned route and commission rate.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "routeName": { "type": "string", "maxLength": 100 },
+        "commissionRatePct": { "type": "number" },
+        "vehicleId": { "type": "string", "maxLength": 128 },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "name", "routeName", "commissionRatePct", "active", "createdBy", "createdAt", "updatedAt"]
+    },
+    "FleetVehicle": {
+      "title": "FleetVehicle",
+      "description": "Delivery truck or van assigned to distribution routes.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "plateNumber": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "modelName": { "type": "string", "maxLength": 100 },
+        "driverName": { "type": "string", "maxLength": 120 },
+        "capacityCartons": { "type": "number" },
+        "currentRoute": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["ready", "on_route", "maintenance"] },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "plateNumber", "modelName", "driverName", "capacityCartons", "currentRoute", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "SalesOrder": {
+      "title": "SalesOrder",
+      "description": "Customer sales invoice with FEFO cost of goods sold, tax, delivery status, and collection tracking.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "invoiceNumber": { "type": "string", "maxLength": 60 },
+        "customerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerName": { "type": "string", "maxLength": 150 },
+        "sector": { "type": "string", "enum": ["supermarket", "wholesale", "b2b"] },
+        "repId": { "type": "string", "maxLength": 128 },
+        "repName": { "type": "string", "maxLength": 120 },
+        "vehicleId": { "type": "string", "maxLength": 128 },
+        "routeName": { "type": "string", "maxLength": 100 },
+        "paymentMethod": { "type": "string", "enum": ["cash", "credit"] },
+        "deliveryStatus": { "type": "string", "enum": ["pending", "dispatched", "delivered", "cancelled"] },
+        "subtotalYer": { "type": "number" },
+        "taxRatePct": { "type": "number" },
+        "taxAmountYer": { "type": "number" },
+        "totalYer": { "type": "number" },
+        "cogsYer": { "type": "number" },
+        "grossProfitYer": { "type": "number" },
+        "paidAmountYer": { "type": "number" },
+        "items": { "type": "array" },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "invoiceNumber", "customerId", "customerName", "sector", "paymentMethod", "deliveryStatus", "subtotalYer", "taxRatePct", "taxAmountYer", "totalYer", "cogsYer", "grossProfitYer", "paidAmountYer", "items", "createdBy", "createdAt", "updatedAt"]
+    },
+    "FinancialPayment": {
+      "title": "FinancialPayment",
+      "description": "Accounts receivable receipt or accounts payable disbursement.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "voucherNumber": { "type": "string", "maxLength": 60 },
+        "paymentType": { "type": "string", "enum": ["customer_receipt", "supplier_payment"] },
+        "partyId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partyName": { "type": "string", "maxLength": 150 },
+        "referenceDocId": { "type": "string", "maxLength": 128 },
+        "amountYer": { "type": "number" },
+        "method": { "type": "string", "enum": ["cash", "bank_transfer", "field_collection"] },
+        "notes": { "type": "string", "maxLength": 300 },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "voucherNumber", "paymentType", "partyId", "partyName", "amountYer", "method", "createdBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Admin role marker documents."
+    },
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Operational user profiles and roles."
+    },
+    "/users/{uid}/private/info": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII email record for a user."
+    },
+    "/suppliers/{supplierId}": {
+      "schema": { "$ref": "#/entities/Supplier" },
+      "description": "Local and international suppliers."
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Cleaning products master catalog with multi-UOM and sector pricing."
+    },
+    "/purchaseOrders/{poId}": {
+      "schema": { "$ref": "#/entities/PurchaseOrder" },
+      "description": "Procurement purchase orders and import landed costs."
+    },
+    "/batches/{batchId}": {
+      "schema": { "$ref": "#/entities/InventoryBatch" },
+      "description": "Inventory batches for FEFO/FIFO expiry and temperature tracking."
+    },
+    "/stockCounts/{countId}": {
+      "schema": { "$ref": "#/entities/StockCount" },
+      "description": "Inventory stocktaking adjustments."
+    },
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Distribution customers across Supermarket, Wholesale, and B2B."
+    },
+    "/salesReps/{repId}": {
+      "schema": { "$ref": "#/entities/SalesRep" },
+      "description": "Field sales representatives."
+    },
+    "/vehicles/{vehicleId}": {
+      "schema": { "$ref": "#/entities/FleetVehicle" },
+      "description": "Fleet delivery vehicles."
+    },
+    "/salesOrders/{orderId}": {
+      "schema": { "$ref": "#/entities/SalesOrder" },
+      "description": "Sales invoices, FEFO COGS, and delivery tracking."
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/FinancialPayment" },
+      "description": "Customer receipts and supplier payments."
+    }
+  }
+}

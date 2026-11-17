@@ -1,0 +1,8 @@
+{
+  "name": "نقاء ERP — إدارة تجارة وتوزيع منتجات التنظيف",
+  "description": "نظام تخطيط موارد متكامل (ERP) لشركات تجارة وتوزيع منتجات التنظيف: المشتريات والاستيراد، المخزون بالصلاحيات FEFO/FIFO والوحدات المتعددة، المبيعات والأسطول، والذمم والربحية بالريال اليمني.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

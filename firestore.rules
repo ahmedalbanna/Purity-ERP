@@ -1,0 +1,546 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny all paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Primitives & Role Helpers
+    // -------------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isVerifiedUser() && request.auth.uid == uid;
+    }
+
+    function isBootstrapAdminEmail() {
+      return isVerifiedUser() && request.auth.token.email == 'ahmedalbannaweb@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrapAdminEmail() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function hasRole(allowedRoles) {
+      return isAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in allowedRoles
+      );
+    }
+
+    function isValidOrgId(val) {
+      return val is string && val == 'naqaa-erp';
+    }
+
+    function isValidStr(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints
+    // -------------------------------------------------------------------------
+    function isValidAdminMarker(data) {
+      return data.keys().hasAll(['grantedAt', 'grantedBy'])
+        && data.keys().hasOnly(['grantedAt', 'grantedBy'])
+        && data.grantedAt is timestamp
+        && isValidId(data.grantedBy);
+    }
+
+    function isValidUserProfile(data, uid) {
+      return data.keys().hasAll(['uid', 'orgId', 'displayName', 'role', 'active', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'orgId', 'displayName', 'role', 'active', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid) && data.uid == uid
+        && isValidOrgId(data.orgId)
+        && isValidStr(data.displayName, 2, 120)
+        && data.role in ['admin', 'procurement', 'warehouse', 'sales', 'finance', 'viewer']
+        && data.active is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll(['email', 'updatedAt'])
+        && data.keys().hasOnly(['email', 'updatedAt'])
+        && isValidStr(data.email, 3, 200)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSupplier(data) {
+      return data.keys().hasAll(['orgId', 'name', 'supplierType', 'country', 'currency', 'paymentTermsDays', 'balanceYer', 'active', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'name', 'supplierType', 'country', 'contactName', 'phone', 'currency', 'paymentTermsDays', 'balanceYer', 'leadTimeDays', 'active', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidOrgId(data.orgId)
+        && isValidStr(data.name, 2, 150)
+        && data.supplierType in ['local', 'international']
+        && isValidStr(data.country, 2, 80)
+        && (!('contactName' in data) || isValidStr(data.contactName, 0, 120))
+        && (!('phone' in data) || isValidStr(data.phone, 0, 40))
+        && data.currency in ['YER', 'SAR', 'USD', 'AED']
+        && data.paymentTermsDays is number && data.paymentTermsDays >= 0 && data.paymentTermsDays <= 365
+        && data.balanceYer is number
+        && (!('leadTimeDays' in data) || (data.leadTimeDays is number && data.leadTimeDays >= 0 && data.leadTimeDays <= 365))
+        && data.active is bool
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['orgId', 'sku', 'name', 'category', 'baseUnitName', 'packUnitName', 'unitsPerPack', 'volumeLitersPerUnit', 'reorderPointUnits', 'priceSupermarketYer', 'priceWholesaleYer', 'priceB2bYer', 'taxable', 'rotationPolicy', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'sku', 'name', 'category', 'baseUnitName', 'packUnitName', 'unitsPerPack', 'volumeLitersPerUnit', 'reorderPointUnits', 'storageTempMin', 'storageTempMax', 'defaultSupplierId', 'lastPurchaseCostYer', 'priceSupermarketYer', 'priceWholesaleYer', 'priceB2bYer', 'taxable', 'rotationPolicy', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidOrgId(data.orgId)
+        && isValidStr(data.sku, 2, 60)
+        && isValidStr(data.name, 2, 160)
+        && data.category in ['detergents', 'disinfectants', 'dishwashing', 'laundry', 'glass_surface', 'industrial']
+        && isValidStr(data.baseUnitName, 1, 40)
+        && isValidStr(data.packUnitName, 1, 40)
+        && data.unitsPerPack is number && data.unitsPerPack >= 1 && data.unitsPerPack <= 1000
+        && data.volumeLitersPerUnit is number && data.volumeLitersPerUnit > 0 && data.volumeLitersPerUnit <= 1000
+        && data.reorderPointUnits is number && data.reorderPointUnits >= 0
+        && (!('storageTempMin' in data) || (data.storageTempMin is number && data.storageTempMin >= -20 && data.storageTempMin <= 60))
+        && (!('storageTempMax' in data) || (data.storageTempMax is number && data.storageTempMax >= -20 && data.storageTempMax <= 60))
+        && (!('defaultSupplierId' in data) || isValidStr(data.defaultSupplierId, 0, 128))
+        && (!('lastPurchaseCostYer' in data) || (data.lastPurchaseCostYer is number && data.lastPurchaseCostYer >= 0))
+        && data.priceSupermarketYer is number && data.priceSupermarketYer >= 0
+        && data.priceWholesaleYer is number && data.priceWholesaleYer >= 0
+        && data.priceB2bYer is number && data.priceB2bYer >= 0
+        && data.taxable is bool
+        && data.rotationPolicy in ['FEFO', 'FIFO']
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPurchaseOrder(data) {
+      return data.keys().hasAll(['orgId', 'poNumber', 'supplierId', 'supplierName', 'shipmentType', 'status', 'goodsSubtotalYer', 'freightCostYer', 'customsDutyYer', 'totalLandedCostYer', 'paidAmountYer', 'items', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'poNumber', 'supplierId', 'supplierName', 'shipmentType', 'status', 'expectedDate', 'goodsSubtotalYer', 'freightCostYer', 'customsDutyYer', 'totalLandedCostYer', 'paidAmountYer', 'items', 'notes', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidOrgId(data.orgId)
+        && isValidStr(data.poNumber, 2, 60)
+        && isValidId(data.supplierId)
+        && isValidStr(data.supplierName, 2, 150)
+        && data.shipmentType in ['local', 'import']
+        && data.status in ['draft', 'ordered', 'in_transit', 'customs', 'received', 'cancelled']
+        && (!('expectedDate' in data) || isValidStr(data.expectedDate, 0, 40))
+        && data.goodsSubtotalYer is number && data.goodsSubtotalYer >= 0
+        && data.freightCostYer is number && data.freightCostYer >= 0
+        && data.customsDutyYer is number && data.customsDutyYer >= 0
+        && data.totalLandedCostYer is number && data.totalLandedCostYer >= 0
+        && data.paidAmountYer is number && data.paidAmountYer >= 0
+        && data.items is list && data.items.size() > 0 && data.items.size() <= 50 && data.items[0] is map
+        && (!('notes' in data) || isValidStr(data.notes, 0, 500))
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInventoryBatch(data) {
+      return data.keys().hasAll(['orgId', 'productId', 'productName', 'sku', 'batchNumber', 'warehouseZone', 'mfgDate', 'expiryDate', 'initialUnits', 'remainingUnits', 'landedUnitCostYer', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'productId', 'productName', 'sku', 'batchNumber', 'warehouseZone', 'recordedTempC', 'mfgDate', 'expiryDate', 'initialUnits', 'remainingUnits', 'landedUnitCostYer', 'poId', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidOrgId(data.orgId)
+        && isValidId(data.productId)
+        && isValidStr(data.productName, 2, 160)
+        && isValidStr(data.sku, 2, 60)
+        && isValidStr(data.batchNumber, 2, 80)
+        && isValidStr(data.warehouseZone, 1, 80)
+        && (!('recordedTempC' in data) || (data.recordedTempC is number && data.recordedTempC >= -20 && data.recordedTempC <= 70))
+        && isValidStr(data.mfgDate, 4, 40)
+        && isValidStr(data.expiryDate, 4, 40)
+        && data.initialUnits is number && data.initialUnits >= 0
+        && data.remainingUnits is number && data.remainingUnits >= 0 && data.remainingUnits <= data.initialUnits
+        && data.landedUnitCostYer is number && data.landedUnitCostYer >= 0
+        && (!('poId' in data) || isValidStr(data.poId, 0, 128))
+        && data.status in ['active', 'depleted', 'quarantined', 'expired']
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStockCount(data) {
+      return data.keys().hasAll(['orgId', 'batchId', 'productId', 'productName', 'batchNumber', 'systemUnits', 'countedUnits', 'varianceUnits', 'reason', 'createdBy', 'createdAt'])
+        && data.keys().hasOnly(['orgId', 'batchId', 'productId', 'productName', 'batchNumber', 'systemUnits', 'countedUnits', 'varianceUnits', 'reason', 'createdBy', 'createdAt'])
+        && isValidOrgId(data.orgId)
+        && isValidId(data.batchId)
+        && isValidId(data.productId)
+        && isValidStr(data.productName, 2, 160)
+        && isValidStr(data.batchNumber, 2, 80)
+        && data.systemUnits is number && data.systemUnits >= 0
+        && data.countedUnits is number && data.countedUnits >= 0
+        && data.varianceUnits is number
+        && isValidStr(data.reason, 2, 240)
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidCustomer(data) {
+      return data.keys().hasAll(['orgId', 'name', 'sector', 'routeName', 'creditLimitYer', 'balanceYer', 'active', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'name', 'sector', 'routeName', 'assignedRepId', 'phone', 'cityDistrict', 'creditLimitYer', 'balanceYer', 'active', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidOrgId(data.orgId)
+        && isValidStr(data.name, 2, 150)
+        && data.sector in ['supermarket', 'wholesale', 'b2b']
+        && isValidStr(data.routeName, 1, 100)
+        && (!('assignedRepId' in data) || isValidStr(data.assignedRepId, 0, 128))
+        && (!('phone' in data) || isValidStr(data.phone, 0, 40))
+        && (!('cityDistrict' in data) || isValidStr(data.cityDistrict, 0, 100))
+        && data.creditLimitYer is number && data.creditLimitYer >= 0
+        && data.balanceYer is number
+        && data.active is bool
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSalesRep(data) {
+      return data.keys().hasAll(['orgId', 'name', 'routeName', 'commissionRatePct', 'active', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'name', 'phone', 'routeName', 'commissionRatePct', 'vehicleId', 'active', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidOrgId(data.orgId)
+        && isValidStr(data.name, 2, 120)
+        && (!('phone' in data) || isValidStr(data.phone, 0, 40))
+        && isValidStr(data.routeName, 1, 100)
+        && data.commissionRatePct is number && data.commissionRatePct >= 0 && data.commissionRatePct <= 50
+        && (!('vehicleId' in data) || isValidStr(data.vehicleId, 0, 128))
+        && data.active is bool
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFleetVehicle(data) {
+      return data.keys().hasAll(['orgId', 'plateNumber', 'modelName', 'driverName', 'capacityCartons', 'currentRoute', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'plateNumber', 'modelName', 'driverName', 'capacityCartons', 'currentRoute', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidOrgId(data.orgId)
+        && isValidStr(data.plateNumber, 2, 40)
+        && isValidStr(data.modelName, 2, 100)
+        && isValidStr(data.driverName, 2, 120)
+        && data.capacityCartons is number && data.capacityCartons > 0 && data.capacityCartons <= 50000
+        && isValidStr(data.currentRoute, 1, 100)
+        && data.status in ['ready', 'on_route', 'maintenance']
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSalesOrder(data) {
+      return data.keys().hasAll(['orgId', 'invoiceNumber', 'customerId', 'customerName', 'sector', 'paymentMethod', 'deliveryStatus', 'subtotalYer', 'taxRatePct', 'taxAmountYer', 'totalYer', 'cogsYer', 'grossProfitYer', 'paidAmountYer', 'items', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orgId', 'invoiceNumber', 'customerId', 'customerName', 'sector', 'repId', 'repName', 'vehicleId', 'routeName', 'paymentMethod', 'deliveryStatus', 'subtotalYer', 'taxRatePct', 'taxAmountYer', 'totalYer', 'cogsYer', 'grossProfitYer', 'paidAmountYer', 'items', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidOrgId(data.orgId)
+        && isValidStr(data.invoiceNumber, 2, 60)
+        && isValidId(data.customerId)
+        && isValidStr(data.customerName, 2, 150)
+        && data.sector in ['supermarket', 'wholesale', 'b2b']
+        && (!('repId' in data) || isValidStr(data.repId, 0, 128))
+        && (!('repName' in data) || isValidStr(data.repName, 0, 120))
+        && (!('vehicleId' in data) || isValidStr(data.vehicleId, 0, 128))
+        && (!('routeName' in data) || isValidStr(data.routeName, 0, 100))
+        && data.paymentMethod in ['cash', 'credit']
+        && data.deliveryStatus in ['pending', 'dispatched', 'delivered', 'cancelled']
+        && data.subtotalYer is number && data.subtotalYer >= 0
+        && data.taxRatePct is number && data.taxRatePct >= 0 && data.taxRatePct <= 50
+        && data.taxAmountYer is number && data.taxAmountYer >= 0
+        && data.totalYer is number && data.totalYer >= 0
+        && data.cogsYer is number && data.cogsYer >= 0
+        && data.grossProfitYer is number
+        && data.paidAmountYer is number && data.paidAmountYer >= 0 && data.paidAmountYer <= data.totalYer
+        && data.items is list && data.items.size() > 0 && data.items.size() <= 50 && data.items[0] is map
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFinancialPayment(data) {
+      return data.keys().hasAll(['orgId', 'voucherNumber', 'paymentType', 'partyId', 'partyName', 'amountYer', 'method', 'createdBy', 'createdAt'])
+        && data.keys().hasOnly(['orgId', 'voucherNumber', 'paymentType', 'partyId', 'partyName', 'referenceDocId', 'amountYer', 'method', 'notes', 'createdBy', 'createdAt'])
+        && isValidOrgId(data.orgId)
+        && isValidStr(data.voucherNumber, 2, 60)
+        && data.paymentType in ['customer_receipt', 'supplier_payment']
+        && isValidId(data.partyId)
+        && isValidStr(data.partyName, 2, 150)
+        && (!('referenceDocId' in data) || isValidStr(data.referenceDocId, 0, 128))
+        && data.amountYer is number && data.amountYer > 0
+        && data.method in ['cash', 'bank_transfer', 'field_collection']
+        && (!('notes' in data) || isValidStr(data.notes, 0, 300))
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Rules
+    // -------------------------------------------------------------------------
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if false;
+      allow create: if isValidId(uid) && isAdmin() && isValidAdminMarker(incoming()) && incoming().grantedAt == request.time && incoming().grantedBy == request.auth.uid;
+      allow update: if false;
+      allow delete: if isValidId(uid) && isAdmin();
+    }
+
+    match /users/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp' && (request.auth.token.email == 'ahmedalbannaweb@gmail.com' || resource.data.uid == request.auth.uid);
+      allow create: if isValidId(uid)
+        && isVerifiedUser()
+        && isValidUserProfile(incoming(), uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (isOwner(uid) && incoming().role == 'viewer' && incoming().active == true)
+        );
+      allow update: if isValidId(uid)
+        && isVerifiedUser()
+        && isValidUserProfile(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().orgId == existing().orgId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'active', 'updatedAt'])) ||
+          (isOwner(uid) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']))
+        );
+      allow delete: if isValidId(uid) && isAdmin();
+
+      match /private/info {
+        allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+        allow list: if false;
+        allow create: if isValidId(uid) && (isOwner(uid) || isAdmin()) && isValidUserPrivateInfo(incoming()) && incoming().updatedAt == request.time;
+        allow update: if isValidId(uid) && (isOwner(uid) || isAdmin()) && isValidUserPrivateInfo(incoming()) && incoming().updatedAt == request.time && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+        allow delete: if isValidId(uid) && isAdmin();
+      }
+    }
+
+    match /suppliers/{supplierId} {
+      allow get: if isValidId(supplierId) && isVerifiedUser() && existing().orgId == 'naqaa-erp';
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp';
+      allow create: if isValidId(supplierId)
+        && hasRole(['admin', 'procurement', 'finance'])
+        && isValidSupplier(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(supplierId)
+        && isValidSupplier(incoming())
+        && incoming().orgId == existing().orgId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'supplierType', 'country', 'contactName', 'phone', 'currency', 'paymentTermsDays', 'balanceYer', 'leadTimeDays', 'active', 'updatedAt'])) ||
+          (hasRole(['procurement']) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'supplierType', 'country', 'contactName', 'phone', 'currency', 'paymentTermsDays', 'balanceYer', 'leadTimeDays', 'active', 'updatedAt'])) ||
+          (hasRole(['finance', 'warehouse']) && incoming().diff(existing()).affectedKeys().hasOnly(['balanceYer', 'updatedAt']))
+        );
+      allow delete: if isValidId(supplierId) && isAdmin();
+    }
+
+    match /products/{productId} {
+      allow get: if isValidId(productId) && isVerifiedUser() && existing().orgId == 'naqaa-erp';
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp';
+      allow create: if isValidId(productId)
+        && hasRole(['admin', 'procurement', 'warehouse'])
+        && isValidProduct(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(productId)
+        && isValidProduct(incoming())
+        && incoming().orgId == existing().orgId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['sku', 'name', 'category', 'baseUnitName', 'packUnitName', 'unitsPerPack', 'volumeLitersPerUnit', 'reorderPointUnits', 'storageTempMin', 'storageTempMax', 'defaultSupplierId', 'lastPurchaseCostYer', 'priceSupermarketYer', 'priceWholesaleYer', 'priceB2bYer', 'taxable', 'rotationPolicy', 'updatedAt'])) ||
+          (hasRole(['procurement', 'warehouse']) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'reorderPointUnits', 'storageTempMin', 'storageTempMax', 'defaultSupplierId', 'lastPurchaseCostYer', 'priceSupermarketYer', 'priceWholesaleYer', 'priceB2bYer', 'taxable', 'rotationPolicy', 'updatedAt']))
+        );
+      allow delete: if isValidId(productId) && isAdmin();
+    }
+
+    match /purchaseOrders/{poId} {
+      allow get: if isValidId(poId) && isVerifiedUser() && existing().orgId == 'naqaa-erp';
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp';
+      allow create: if isValidId(poId)
+        && hasRole(['admin', 'procurement'])
+        && isValidPurchaseOrder(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/suppliers/$(incoming().supplierId));
+      allow update: if isValidId(poId)
+        && isValidPurchaseOrder(incoming())
+        && incoming().orgId == existing().orgId
+        && incoming().supplierId == existing().supplierId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'expectedDate', 'freightCostYer', 'customsDutyYer', 'totalLandedCostYer', 'paidAmountYer', 'notes', 'updatedAt'])) ||
+          (existing().status in ['draft', 'ordered', 'in_transit', 'customs'] && hasRole(['procurement', 'warehouse']) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'expectedDate', 'freightCostYer', 'customsDutyYer', 'totalLandedCostYer', 'notes', 'updatedAt'])) ||
+          (hasRole(['finance', 'procurement']) && incoming().diff(existing()).affectedKeys().hasOnly(['paidAmountYer', 'updatedAt']))
+        );
+      allow delete: if isValidId(poId) && isAdmin();
+    }
+
+    match /batches/{batchId} {
+      allow get: if isValidId(batchId) && isVerifiedUser() && existing().orgId == 'naqaa-erp';
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp';
+      allow create: if isValidId(batchId)
+        && hasRole(['admin', 'procurement', 'warehouse'])
+        && isValidInventoryBatch(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/products/$(incoming().productId));
+      allow update: if isValidId(batchId)
+        && isValidInventoryBatch(incoming())
+        && incoming().orgId == existing().orgId
+        && incoming().productId == existing().productId
+        && incoming().initialUnits == existing().initialUnits
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['warehouseZone', 'recordedTempC', 'remainingUnits', 'status', 'updatedAt'])) ||
+          (hasRole(['warehouse', 'procurement', 'sales']) && incoming().diff(existing()).affectedKeys().hasOnly(['warehouseZone', 'recordedTempC', 'remainingUnits', 'status', 'updatedAt']))
+        );
+      allow delete: if isValidId(batchId) && isAdmin();
+    }
+
+    match /stockCounts/{countId} {
+      allow get: if isValidId(countId) && isVerifiedUser() && existing().orgId == 'naqaa-erp';
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp';
+      allow create: if isValidId(countId)
+        && hasRole(['admin', 'warehouse'])
+        && isValidStockCount(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/batches/$(incoming().batchId));
+      allow update: if false;
+      allow delete: if isValidId(countId) && isAdmin();
+    }
+
+    match /customers/{customerId} {
+      allow get: if isValidId(customerId) && isVerifiedUser() && existing().orgId == 'naqaa-erp';
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp';
+      allow create: if isValidId(customerId)
+        && hasRole(['admin', 'sales', 'finance'])
+        && isValidCustomer(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(customerId)
+        && isValidCustomer(incoming())
+        && incoming().orgId == existing().orgId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'sector', 'routeName', 'assignedRepId', 'phone', 'cityDistrict', 'creditLimitYer', 'balanceYer', 'active', 'updatedAt'])) ||
+          (hasRole(['sales', 'finance']) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'sector', 'routeName', 'assignedRepId', 'phone', 'cityDistrict', 'creditLimitYer', 'balanceYer', 'active', 'updatedAt']))
+        );
+      allow delete: if isValidId(customerId) && isAdmin();
+    }
+
+    match /salesReps/{repId} {
+      allow get: if isValidId(repId) && isVerifiedUser() && existing().orgId == 'naqaa-erp';
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp';
+      allow create: if isValidId(repId)
+        && hasRole(['admin', 'sales'])
+        && isValidSalesRep(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(repId)
+        && isValidSalesRep(incoming())
+        && incoming().orgId == existing().orgId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'routeName', 'commissionRatePct', 'vehicleId', 'active', 'updatedAt'])) ||
+          (hasRole(['sales']) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'routeName', 'commissionRatePct', 'vehicleId', 'active', 'updatedAt']))
+        );
+      allow delete: if isValidId(repId) && isAdmin();
+    }
+
+    match /vehicles/{vehicleId} {
+      allow get: if isValidId(vehicleId) && isVerifiedUser() && existing().orgId == 'naqaa-erp';
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp';
+      allow create: if isValidId(vehicleId)
+        && hasRole(['admin', 'sales', 'warehouse'])
+        && isValidFleetVehicle(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(vehicleId)
+        && isValidFleetVehicle(incoming())
+        && incoming().orgId == existing().orgId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['plateNumber', 'modelName', 'driverName', 'capacityCartons', 'currentRoute', 'status', 'updatedAt'])) ||
+          (hasRole(['sales', 'warehouse']) && incoming().diff(existing()).affectedKeys().hasOnly(['driverName', 'currentRoute', 'status', 'updatedAt']))
+        );
+      allow delete: if isValidId(vehicleId) && isAdmin();
+    }
+
+    match /salesOrders/{orderId} {
+      allow get: if isValidId(orderId) && isVerifiedUser() && existing().orgId == 'naqaa-erp';
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp';
+      allow create: if isValidId(orderId)
+        && hasRole(['admin', 'sales'])
+        && isValidSalesOrder(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/customers/$(incoming().customerId));
+      allow update: if isValidId(orderId)
+        && isValidSalesOrder(incoming())
+        && incoming().orgId == existing().orgId
+        && incoming().customerId == existing().customerId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['deliveryStatus', 'vehicleId', 'routeName', 'paidAmountYer', 'updatedAt'])) ||
+          (existing().deliveryStatus in ['pending', 'dispatched'] && hasRole(['sales', 'warehouse']) && incoming().diff(existing()).affectedKeys().hasOnly(['deliveryStatus', 'vehicleId', 'routeName', 'paidAmountYer', 'updatedAt'])) ||
+          (hasRole(['finance', 'sales']) && incoming().diff(existing()).affectedKeys().hasOnly(['paidAmountYer', 'updatedAt']))
+        );
+      allow delete: if isValidId(orderId) && isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow get: if isValidId(paymentId) && isVerifiedUser() && existing().orgId == 'naqaa-erp';
+      allow list: if isVerifiedUser() && resource.data.orgId == 'naqaa-erp';
+      allow create: if isValidId(paymentId)
+        && hasRole(['admin', 'finance', 'sales', 'procurement'])
+        && isValidFinancialPayment(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(paymentId) && isAdmin();
+    }
+  }
+}
